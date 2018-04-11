@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/nifi-opentsdb-bundle.iml" filepath="$PROJECT_DIR$/nifi-opentsdb-bundle.iml" />
+      <module fileurl="file://$PROJECT_DIR$/nifi-opentsdb-nar/nifi-opentsdb-nar.iml" filepath="$PROJECT_DIR$/nifi-opentsdb-nar/nifi-opentsdb-nar.iml" />
+      <module fileurl="file://$PROJECT_DIR$/nifi-opentsdb-processors/nifi-opentsdb-processors.iml" filepath="$PROJECT_DIR$/nifi-opentsdb-processors/nifi-opentsdb-processors.iml" />
+    </modules>
+  </component>
+</project>
