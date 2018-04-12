@@ -28,16 +28,17 @@ import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
-import org.apache.nifi.processor.*;
+import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.ProcessorInitializationContext;
+import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.AbstractOkHttpProcessor;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.apache.commons.lang3.StringUtils.trimToEmpty;
 
@@ -53,38 +54,9 @@ import static org.apache.commons.lang3.StringUtils.trimToEmpty;
 @CapabilityDescription("Writes the contents of a FlowFile to OpenTSDB, using the specified parameters such as " +
         "HTTP URL which will be connected to, including scheme (http, e.g.), host, and port. " +
         "The default port for the REST API is 4242.")
-public class PutOpenTSDBHttp extends AbstractProcessor {
+public class PutOpenTSDBHttp extends AbstractOkHttpProcessor {
 
-    private static final PropertyDescriptor HTTP_URL = new PropertyDescriptor.Builder()
-            .name("http-url")
-            .displayName("OpenTSDB URL")
-            .description("OpenTSDB URL which will be connected to, including scheme (http, e.g.), host, and port. " +
-                    "The default port for the REST API is 4242.")
-            .required(true)
-            .defaultValue("http://10.0.2.44:4242") // Just for test
-            .addValidator(StandardValidators.URL_VALIDATOR)
-            .expressionLanguageSupported(true)
-            .build();
-
-    private static final PropertyDescriptor CONNECT_TIMEOUT = new PropertyDescriptor.Builder()
-            .name("OpenTSDB-http-connect-timeout")
-            .displayName("Connection Timeout")
-            .description("Max wait time for the connection to the OpenTSDB REST API.")
-            .required(true)
-            .defaultValue("5 secs")
-            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .expressionLanguageSupported(true)
-            .build();
-
-    private static final PropertyDescriptor RESPONSE_TIMEOUT = new PropertyDescriptor.Builder()
-            .name("OpenTSDB-http-response-timeout")
-            .displayName("Response Timeout")
-            .description("Max wait time for a response from the OpenTSDB REST API.")
-            .required(true)
-            .defaultValue("15 secs")
-            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .expressionLanguageSupported(true)
-            .build();
+    private static final int size = 250;
 
     private static final Relationship REL_SUCCESS = new Relationship.Builder().name("Success")
             .description("All FlowFiles that are written to OpenTSDB are routed to this relationship").build();
@@ -97,8 +69,6 @@ public class PutOpenTSDBHttp extends AbstractProcessor {
     private List<PropertyDescriptor> descriptors;
 
     private Set<Relationship> relationships;
-
-    private final AtomicReference<OkHttpClient> okHttpClientAtomicReference = new AtomicReference<>();
 
     @Override
     protected void init(ProcessorInitializationContext context) {
@@ -128,19 +98,7 @@ public class PutOpenTSDBHttp extends AbstractProcessor {
 
     @OnScheduled
     public void setup(ProcessContext context) {
-        createOpenTSDBClient(context);
-    }
-
-    private void createOpenTSDBClient(ProcessContext context) throws ProcessException {
-        okHttpClientAtomicReference.set(null);
-
-        OkHttpClient.Builder okHttpClient = new OkHttpClient.Builder();
-
-        // Set timeouts
-        okHttpClient.connectTimeout((context.getProperty(CONNECT_TIMEOUT).evaluateAttributeExpressions().asTimePeriod(TimeUnit.MILLISECONDS).intValue()), TimeUnit.MILLISECONDS);
-        okHttpClient.readTimeout(context.getProperty(RESPONSE_TIMEOUT).evaluateAttributeExpressions().asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS);
-
-        okHttpClientAtomicReference.set(okHttpClient.build());
+        super.createOkHttpClient(context);
     }
 
     @Override
@@ -152,17 +110,17 @@ public class PutOpenTSDBHttp extends AbstractProcessor {
 
         final String baseUrl = trimToEmpty(context.getProperty(HTTP_URL).evaluateAttributeExpressions().getValue());
         final URL url;
+
         try {
             url = new URL((baseUrl.endsWith("/") ? baseUrl : baseUrl + "/") + "api/put?details");
-        } catch (MalformedURLException mue) {
-            throw new ProcessException(mue);
+        } catch (MalformedURLException e) {
+            throw new ProcessException(e);
         }
 
         final StringBuilder content = new StringBuilder();
         session.read(flowFile, in -> content.append(IOUtils.toString(in, "UTF-8")));
         List<DataPoint> dataPoints = JSONObject.parseArray(content.toString(), DataPoint.class);
 
-        final int size = 250;
         final int dataPointsSize = dataPoints.size();
         int index = 0;
         do {
@@ -221,35 +179,5 @@ public class PutOpenTSDBHttp extends AbstractProcessor {
             logger.warn("OpenTSDB returned code[{}] with message: {}, transferring flow file to failure", new Object[]{statusCode, response.message()});
         }
         return false;
-    }
-
-    private Response getResponse(URL url, String verb, RequestBody body) throws IOException {
-        Request.Builder requestBuilder = new Request.Builder().url(url);
-
-        if ("get".equalsIgnoreCase(verb)) {
-            requestBuilder = requestBuilder.get();
-        } else if ("put".equalsIgnoreCase(verb)) {
-            requestBuilder = requestBuilder.put(body);
-        } else if ("post".equalsIgnoreCase(verb)) {
-            requestBuilder = requestBuilder.post(body);
-        } else {
-            throw new IllegalArgumentException("OpenTSDB REST API verb not supported by this processor: " + verb);
-        }
-
-        Request httpRequest = requestBuilder.build();
-
-        logger.debug("Send OpenTSDB request to {}", new Object[]{url});
-
-        Response response = okHttpClientAtomicReference.get().newCall(httpRequest).execute();
-
-        int statusCode = response.code();
-
-        if (statusCode == 0) {
-            throw new IllegalStateException("Status code unknown, connection hasn't been attempted.");
-        }
-
-        logger.debug("Received response from OpenTSDB with status code {}", new Object[]{statusCode});
-
-        return response;
     }
 }
