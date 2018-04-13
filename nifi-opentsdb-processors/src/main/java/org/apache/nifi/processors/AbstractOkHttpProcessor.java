@@ -27,7 +27,6 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 
-import java.io.IOException;
 import java.net.URL;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,9 +42,8 @@ public abstract class AbstractOkHttpProcessor extends AbstractProcessor {
             .name("http-url")
             .displayName("HTTP URL")
             .description("HTTP URL which will be connected to, including scheme (http, e.g.), host, and port. " +
-                    "The default port for the REST API is 4242.")
+                    "The default port for the http server is 4242.")
             .required(true)
-            .defaultValue("http://10.0.2.44:4242") // Just for test
             .addValidator(StandardValidators.URL_VALIDATOR)
             .expressionLanguageSupported(true)
             .build();
@@ -84,7 +82,7 @@ public abstract class AbstractOkHttpProcessor extends AbstractProcessor {
         okHttpClientAtomicReference.set(okHttpClient.build());
     }
 
-    protected Response getResponse(URL url, String verb, RequestBody body) throws IOException {
+    protected Response getResponse(URL url, String verb, RequestBody body) throws Exception {
         final ComponentLog logger = getLogger();
 
         Request.Builder requestBuilder = new Request.Builder().url(url);
